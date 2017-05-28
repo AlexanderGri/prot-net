@@ -1,0 +1,41 @@
+{     "learning_params"  : {"n_epochs"         : 3, 
+                            "batch_size"       : 300, 
+                            "n_batches"        : 10,
+                            "l_rate"           : 1e-8,
+                            "ligands_sampling" : "random"},
+
+      "affinity"         : {"invert": true,
+                            "transformation" : "log+min_max"},
+
+      "ligand"           : {"emb_type"   : "learn",
+                            "emb_params" : {"emb_size" : 8},
+                            "enc_type"   : "CNN",
+                            "enc_params" : {"n_layers"    : 3,
+                                            "n_filters"   : [10,10,10],
+                                            "filter_size" : [10,10,10],
+                                            "hid_size"    : 200},
+                            "repr_size"  : 0},
+
+      "protein"          : {"emb_type"   : "learn",
+                            "emb_params" : {"emb_size" : 5},
+                            "enc_type"   : "RNN",
+                            "enc_params" : {"rnn_type"      : "LSTM",
+                                            "hid_size"      : 200,
+                                            "grad_clipping" : 100},
+                            "repr_size"  : 0},
+
+      "train_test_split" : {"train_frac" : 0.8,
+                            "seed"       : 3146},
+
+      "loss"             : {"type"       : "hinge", 
+                            "margin"     : 1e-4,
+                            "kernel"     : "linear"},
+
+      "metrics"          : [{"name"      : "MSE"},
+                            {"name"      : "hinge",
+                             "margin"    : 0,
+                             "kernel"    : "sign"},
+                            {"name"      : "auc"},
+                            {"name"      : "ndcg",
+                             "Ks"         : [10, 20, 50, 100],
+                             "transformation" : "percentile"}]}

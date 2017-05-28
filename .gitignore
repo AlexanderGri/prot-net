@@ -1,0 +1,6 @@
+# for now ignore everything except the script and exps
+/data
+/l2rank
+*.ipynb
+*.pkl
+
