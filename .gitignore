@@ -3,4 +3,4 @@
 /l2rank
 *.ipynb
 *.pkl
-
+*.log

@@ -258,10 +258,10 @@ def main(argc, argv):
             raise KeyError("Unknown emb_type %s" % emb_type)
     del X
 ####################################################################
-    y = db['Ki (nM)']
+    y = db['Ki (nM)'].values
 
     if params["affinity"]["invert"]:
-        y = -y
+        y = 1 / y
 
     transformation = params["affinity"]["transformation"]
     if transformation == "log+min_max":
