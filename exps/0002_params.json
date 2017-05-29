@@ -14,7 +14,7 @@
                                             "n_filters"   : [10,10,10],
                                             "filter_size" : [10,10,10],
                                             "hid_size"    : 200},
-                            "repr_size"  : 0},
+                            "repr_size"  : 200},
 
       "protein"          : {"emb_type"   : "learn",
                             "emb_params" : {"emb_size" : 5},
@@ -22,7 +22,7 @@
                             "enc_params" : {"rnn_type"      : "LSTM",
                                             "hid_size"      : 200,
                                             "grad_clipping" : 100},
-                            "repr_size"  : 0},
+                            "repr_size"  : 200},
 
       "train_test_split" : {"train_frac" : 0.8,
                             "seed"       : 3146},
