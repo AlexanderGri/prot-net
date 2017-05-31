@@ -106,8 +106,8 @@ def pairwise_hinge(pred, target, margin, kernel):
         pass
     else:
         raise KeyError("Unknown kernel %s" % kernel)
-    loss = T.sum(T.maximum(0, margin - delta_pred * delta_target))
-    norm_loss = loss / n / (n - 1)
+    losses = T.maximum(0, margin - delta_pred * delta_target) * T.invert(T.eye(n))
+    norm_loss = T.sum(losses) / n / (n - 1)
     return norm_loss
 
 def iterate_ligand_minibatches(df, prot_num, ligand_num, **kwargs):
@@ -260,13 +260,13 @@ def main(argc, argv):
 ####################################################################
     y = db['Ki (nM)'].values
 
-    if params["affinity"]["invert"]:
-        y = 1 / y
+#    if params["affinity"]["invert"]:
+#        y = 1 / y
 
     transformation = params["affinity"]["transformation"]
     if transformation == "log+min_max":
-        y = np.log(y)
-        y = (y - y.min()) / (y.max() - y.min())
+#        y = np.log(y)
+#        y = (y - y.min()) / (y.max() - y.min())
         # because it will be compared with cos
         y = 2 * (y - 0.5)
     else:
@@ -413,6 +413,10 @@ def main(argc, argv):
         scores["test"][i] = epoch_scores / num_batches
         test_loss_list.append(test_loss / num_batches)
         logger.info("Test loss %f" % test_loss_list[-1])
+
+        if (i % 10 == 0):
+            with open(path+'/'+exp_num+'_results.pkl', 'w') as f:
+                pickle.dump(scores, f)
 ####################################################################
     logger.info("Dump results...")
     with open(path+'/'+exp_num+'_results.pkl', 'w') as f:
