@@ -111,9 +111,10 @@ def pairwise_hinge(pred, target, margin, kernel):
     return norm_loss
 
 def iterate_ligand_minibatches(df, prot_num, ligand_num, **kwargs):
-    batchsize=kwargs.get("batchsize",100)
-    shuffle = kwargs.get("shuffle",True)
-    
+    batchsize = kwargs.get("batchsize")
+    include_single_ligands = kwargs.get("include_single_ligands")
+    shuffle = kwargs.get("shuffle")
+
     num_ligands = [0] + [df.ix[df.index.levels[0][i]].shape[0] 
                          for i in range(df.index.levels[0].size - 1)]
     cum_sum_ligands = np.cumsum(num_ligands)
@@ -130,6 +131,8 @@ def iterate_ligand_minibatches(df, prot_num, ligand_num, **kwargs):
             batch_prot = df.index.levels[0][prot_idx]
             table = df.ix[batch_prot]
             n_ligands = table.shape[0]
+            if not include_single_ligands and n_ligands == 1:
+                continue
             ligand_indices = np.arange(n_ligands)
 
             if shuffle:
@@ -361,7 +364,6 @@ def main(argc, argv):
 ####################################################################
     logger.info("Start learning...")
     n_epochs = params["learning_params"]["n_epochs"]
-    batch_size = params["learning_params"]["batch_size"]
     n_batches = params["learning_params"]["n_batches"]
     l_rate = params["learning_params"]["l_rate"]
     metrics = params["metrics"]
@@ -370,8 +372,12 @@ def main(argc, argv):
     train_loss_list = []
     test_loss_list = []
 
-    train_iter = iterate_ligand_minibatches(*data["train"], shuffle=True, batchsize=batch_size)
-    test_iter = iterate_ligand_minibatches(*data["test"], shuffle=True, batchsize=batch_size)
+    iter_kwargs = {'shuffle'                : True,
+                   'batchsize'              : params["learning_params"]["batch_size"],
+                   'include_single_ligands' : params["loss"] == 'MSE'}
+
+    train_iter = iterate_ligand_minibatches(*data["train"], **iter_kwargs)
+    test_iter = iterate_ligand_minibatches(*data["test"], **iter_kwargs)
 
 
     scores = {}
