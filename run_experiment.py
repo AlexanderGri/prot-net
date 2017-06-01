@@ -263,15 +263,10 @@ def main(argc, argv):
 ####################################################################
     y = db['Ki (nM)'].values
 
-#    if params["affinity"]["invert"]:
-#        y = 1 / y
-
     transformation = params["affinity"]["transformation"]
     if transformation == "log+min_max":
-#        y = np.log(y)
-#        y = (y - y.min()) / (y.max() - y.min())
-        # because it will be compared with cos
-        y = 2 * (y - 0.5)
+        y = -np.log(y)
+        y = (y - y.min()) / (y.max() - y.min())
     else:
         raise KeyError("Unknown transformation %s" % transformation)
 
@@ -310,11 +305,12 @@ def main(argc, argv):
     target_y = T.vector('Ki value', dtype='float32')
     l_rate_theano = T.scalar('learning rate')
     cosine_pred = cosine_fun(reprs['protein'], reprs['ligand'])
+    normalized_cosine_pred = (cosine_pred + 1) / 2
 
     if (params['loss']['type'] == 'MSE'):
-        loss = T.mean((cosine_pred - target_y) ** 2)
+        loss = T.mean((normalized_cosine_pred - target_y) ** 2)
     elif (params['loss']['type'] == 'hinge'):
-        loss = pairwise_hinge(cosine_pred, target_y,
+        loss = pairwise_hinge(normalized_cosine_pred, target_y,
                               params['loss']['margin'],
                               params['loss']['kernel'])
     else:
@@ -335,11 +331,11 @@ def main(argc, argv):
         if params[name]["enc_type"] == 'RNN':
             t_input_args.append(params[name]["enc_params"]['mask'])
     t_input_args += [target_y, l_rate_theano]
-    train_fun = theano.function(t_input_args, [loss, cosine_pred], updates=updates)
+    train_fun = theano.function(t_input_args, [loss, normalized_cosine_pred], updates=updates)
 
     train_fun_wrap = masking_decorator(params['protein']["enc_type"] == 'RNN',
                                        params['ligand']["enc_type"] == 'RNN')(train_fun)
-    test_fun = theano.function(t_input_args[:-1], [loss, cosine_pred])
+    test_fun = theano.function(t_input_args[:-1], [loss, normalized_cosine_pred])
     test_fun_wrap = masking_decorator(params['protein']["enc_type"] == 'RNN',
                                       params['ligand']["enc_type"] == 'RNN')(test_fun)
 
