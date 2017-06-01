@@ -172,7 +172,8 @@ def compute_hinge(delta_pred, delta_target, margin, kernel):
         pass
     else:
         raise KeyError("Unknown kernel %s" % kernel)
-    loss = np.sum(np.maximum(0, margin - delta_pred * delta_target))
+    mask = np.invert(np.eye(n, dtype=bool))
+    loss = np.sum(np.maximum(0, margin - delta_pred * delta_target)) * mask
     norm_loss = loss / n / (n - 1)
     return norm_loss
 
