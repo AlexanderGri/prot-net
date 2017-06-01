@@ -106,7 +106,7 @@ def pairwise_hinge(pred, target, margin, kernel):
         pass
     else:
         raise KeyError("Unknown kernel %s" % kernel)
-    losses = T.maximum(0, margin - delta_pred * delta_target) * T.invert(T.eye(n))
+    losses = T.maximum(0, margin - delta_pred * delta_target) * T.invert(T.eye(n, dtype='bool'))
     norm_loss = T.sum(losses) / n / (n - 1)
     return norm_loss
 
