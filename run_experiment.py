@@ -89,12 +89,16 @@ def build_encoder(input_var, emb_type, emb_params,
     net['output'] = net['dense_1']
     return net
 
-def cosine_fun(protein, ligands):
+def normalized_dot_product(protein, ligands, gram_matrix):
     # normalization, assuming protein.shape[0] == 1
-    protein_norm  = protein[0] / T.sqrt(T.sum(protein ** 2))
+    protein_norm  = protein / T.sqrt(T.sum(protein ** 2))
     ligands_norm = ligands / T.sqrt(T.sum(ligands ** 2, axis = 1, keepdims=True))
     # assume normalized
-    return T.sum(protein_norm * ligands_norm, axis=1)
+    if gram_matrix:
+        result = T.dot(T.dot(protein_norm, gram_matrix), ligands_norm.transpose())[0]
+    else:
+        result = T.sum(protein_norm[0] * ligands_norm, axis=1)
+    return result
 
 def pairwise_hinge(pred, target, margin, kernel):
     n = pred.shape[0]
@@ -173,7 +177,7 @@ def compute_hinge(delta_pred, delta_target, margin, kernel):
     else:
         raise KeyError("Unknown kernel %s" % kernel)
     mask = np.invert(np.eye(n, dtype=bool))
-    loss = np.sum(np.maximum(0, margin - delta_pred * delta_target)) * mask
+    loss = np.sum(np.maximum(0, margin - delta_pred * delta_target) * mask)
     norm_loss = loss / n / (n - 1)
     return norm_loss
 
@@ -199,8 +203,7 @@ def compute_ndcg(pred, target, transformation, Ks):
             continue
 
         results.append(dcg(relevances, rank) / best_dcg)
-
-    return np.array(results)
+    return results
 
 def compute_scores(pred, target, metrics):
     names = [metric["name"] for metric in metrics]
@@ -305,7 +308,20 @@ def main(argc, argv):
         reprs[name] = get_output(nets[name]['output'], deterministic=True)
     target_y = T.vector('Ki value', dtype='float32')
     l_rate_theano = T.scalar('learning rate')
-    cosine_pred = cosine_fun(reprs['protein'], reprs['ligand'])
+
+    gram_matrix = None
+    if params['dot_product']['learnable']:
+        w_init = lasagne.init.GlorotUniform()
+        n, m = (nets['protein']['output'].output_shape[1],
+                nets['ligand' ]['output'].output_shape[1])
+        gram_matrix = theano.shared(lasagne.utils.floatX(w_init((n, m))))
+        if n == m:
+            # force to be positive symmetric
+            gram_matrix = T.dot(gram_matrix, gram_matrix.T)
+
+    cosine_pred = normalized_dot_product(reprs['protein'], 
+                                         reprs['ligand'],
+                                         gram_matrix)
     normalized_cosine_pred = (cosine_pred + 1) / 2
 
     if (params['loss']['type'] == 'MSE'):
