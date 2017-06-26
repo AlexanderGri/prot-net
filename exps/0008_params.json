@@ -1,4 +1,4 @@
-{     "learning_params"  : {"n_epochs"         : 100, 
+{     "learning_params"  : {"n_epochs"         : 25, 
                             "batch_size"       : 300, 
                             "n_batches"        : 100,
                             "l_rate"           : 1e-4,
@@ -23,6 +23,8 @@
                                             "filter_size" : [10,10,10],
                                             "hid_size"    : 200},
                             "repr_size"  : 0},
+
+      "dot_product"      : {"learnable"  : false},
 
       "train_test_split" : {"train_frac" : 0.8,
                             "seed"       : 3146},

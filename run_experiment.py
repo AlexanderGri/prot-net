@@ -16,9 +16,9 @@ import json
 import logging
 import os
 from l2rank.ndcg import dcg
+from scipy.special import expit
 
 class VocabCoding:
-    
     def __init__(self, X):
         self.vocab = []
         for el in X:
@@ -123,7 +123,9 @@ def iterate_ligand_minibatches(df, prot_num, ligand_num, **kwargs):
                          for i in range(df.index.levels[0].size - 1)]
     cum_sum_ligands = np.cumsum(num_ligands)
     
-    n_prots = df.index.levels[0].size
+    #n_prots = df.index.levels[0].size
+    #from pandas 0.19 to 0.20 above doesn't work properly
+    n_prots = df.groupby(level=[0]).count().shape[0]
     prot_indices = np.arange(n_prots)
     
     while True:
@@ -228,6 +230,45 @@ def compute_scores(pred, target, metrics):
             raise KeyError("Unknown metric %s" % metric["name"])
     return np.array(results)
 
+class RankNet_Op(theano.Op):
+    __props__ = ()
+
+    itypes = [theano.tensor.fvector, theano.tensor.fvector]
+    otypes = [theano.tensor.scalar]
+
+    def __init__(self, sigma):
+        self.sigma = sigma
+        super(RankNet_Op, self).__init__()
+
+    def perform(self, node, inputs, output_storage):
+        x, y = inputs
+        n = x.shape[0]
+        
+        delta_x = x.reshape((n, 1)) - x.reshape((1, n))
+        delta_y = y.reshape((n, 1)) - y.reshape((1, n))
+        
+        y_p = expit(self.sigma * delta_y)
+        
+        z = output_storage[0]
+        z[0] = (((1 - y_p) * delta_x * self.sigma + np.logaddexp(0, -self.sigma * delta_x)) *
+                np.invert(np.eye(n, dtype='bool'))).sum() / n / (n-1)
+
+    def infer_shape(self, node, i0_shapes):
+        return [()]
+
+    def grad(self, inputs, output_grads):
+        x, y = inputs
+        n = x.shape[0]
+        
+        delta_x = x.reshape((n, 1)) - x.reshape((1, n))
+        delta_y = y.reshape((n, 1)) - y.reshape((1, n))
+        
+        y_p = 1 / (1 + T.exp(-self.sigma * delta_y))
+        
+        lambd = self.sigma * ( (1 - y_p) - 1 / (1 + T.exp(self.sigma * delta_x)))
+        lambd_normed = (lambd).sum(1)  / n / (n-1)
+        return [output_grads[0] * lambd_normed, T.zeros_like(y)]
+
 def main(argc, argv):
     path = os.path.dirname(argv[2])
     exp_num = os.path.basename(argv[2]).split('_')[0]
@@ -324,12 +365,15 @@ def main(argc, argv):
                                          gram_matrix)
     normalized_cosine_pred = (cosine_pred + 1) / 2
 
-    if (params['loss']['type'] == 'MSE'):
+    if params['loss']['type'] == 'MSE':
         loss = T.mean((normalized_cosine_pred - target_y) ** 2)
-    elif (params['loss']['type'] == 'hinge'):
+    elif params['loss']['type'] == 'hinge':
         loss = pairwise_hinge(normalized_cosine_pred, target_y,
                               params['loss']['margin'],
                               params['loss']['kernel'])
+    elif params['loss']['type'] == 'rank_net':
+        ranknet_op = RankNet_Op(params['loss']['sigma'])
+        loss = ranknet_op(normalized_cosine_pred, target_y)
     else:
         raise KeyError("Unknown loss %s" % params['loss']['type'])
 

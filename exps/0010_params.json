@@ -9,11 +9,10 @@
 
       "ligand"           : {"emb_type"   : "learn",
                             "emb_params" : {"emb_size" : 8},
-                            "enc_type"   : "CNN",
-                            "enc_params" : {"n_layers"    : 3,
-                                            "n_filters"   : [10,10,10],
-                                            "filter_size" : [10,10,10],
-                                            "hid_size"    : 200},
+                            "enc_type"   : "RNN",
+                            "enc_params" : {"rnn_type"      : "RNN",
+                                            "hid_size"      : 200,
+                                            "grad_clipping" : 100},
                             "repr_size"  : 0},
 
       "protein"          : {"emb_type"   : "learn",
