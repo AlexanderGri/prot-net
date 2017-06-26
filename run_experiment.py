@@ -61,7 +61,8 @@ def build_encoder(input_var, emb_type, emb_params,
         net['dimshuf'] = DimshuffleLayer(net['emb'], (0, 2, 1))
         net['conv_-1'] = net['dimshuf']
         for i in range(enc_params['n_layers']):
-            net['conv_%d' % i] = Conv1DLayer(net['conv_%d' % (i - 1)],
+            net['conv_%d' % i] = lasagne.layers.DropoutLayer(net['conv_%d' % (i - 1)], 0.05)
+            net['conv_%d' % i] = Conv1DLayer(net['conv_%d' % i],
                                              enc_params['n_filters'][i],
                                              enc_params['filter_size'][i])
         else:
@@ -74,9 +75,14 @@ def build_encoder(input_var, emb_type, emb_params,
                          'GRU' : GRULayer}
         net['input_mask'] = InputLayer((None, emb_params['max_len']), enc_params['mask'], dtype='int32')
         rnn_layer = name_to_layer[enc_params['rnn_type']]
-        net['enc'] = rnn_layer(net['emb'], enc_params['hid_size'],
-                               grad_clipping=enc_params['grad_clipping'],
-                               only_return_final=True, mask_input=net['input_mask'])
+        n_layers = enc_params.get('n_layers', 1)
+        net['enc'] = net['emb']
+        for i in range(n_layers):
+            net['enc'] = lasagne.layers.DropoutLayer(net['enc'], 0.1)
+            net['enc'] = rnn_layer(net['enc'], enc_params['hid_size'],
+                                   grad_clipping=enc_params['grad_clipping'],
+                                   only_return_final=(i == n_layers - 1), 
+                                   mask_input=net['input_mask'])
     else:
         raise KeyError("Unknown enc_type %s" % enc_type)
 
@@ -154,6 +160,17 @@ def iterate_ligand_minibatches(df, prot_num, ligand_num, **kwargs):
                 yield (prot_num[prot_idx][None],
                        ligand_num[ligand_indices + cum_sum_ligands[prot_idx]],
                        table.ix[table.index[ligand_indices]]['Ki (nM)'].values)
+
+# only for learnable embedding
+def protein_augmentation(prot, dict_size):
+    aug_prot = prot.copy()
+    if prot.shape == 1:
+        aug_prot = aug_prot[None]
+    skip_indicies = np.nonzero(aug_prot == -1)
+    mut_indicies = np.nonzero(np.random.binomial(1, 0.03, aug_prot.shape))
+    aug_prot[mut_indicies] = np.random.randint(0, dict_size, mut_indicies[0].size)
+    aug_prot[skip_indicies] = -1
+    return aug_prot
 
 def masking_decorator(with_first, with_second):
     def decorator(foo):
@@ -344,9 +361,10 @@ def main(argc, argv):
                                    params[name]['repr_size'])
 ####################################################################
     logger.info("Preparing variables...")
-    reprs = {}
-    for name in names:
-        reprs[name] = get_output(nets[name]['output'], deterministic=True)
+    reprs = {'train':{}, 'test':{}}
+    for type_n in ['train', 'test']:
+        for name in names:
+            reprs[type_n][name] = get_output(nets[name]['output'], deterministic=(type_n =='test'))
     target_y = T.vector('Ki value', dtype='float32')
     l_rate_theano = T.scalar('learning rate')
 
@@ -360,28 +378,31 @@ def main(argc, argv):
             # force to be positive symmetric
             gram_matrix = T.dot(gram_matrix, gram_matrix.T)
 
-    cosine_pred = normalized_dot_product(reprs['protein'], 
-                                         reprs['ligand'],
-                                         gram_matrix)
-    normalized_cosine_pred = (cosine_pred + 1) / 2
+    cosine_pred = {}
+    loss = {}
+    for type_n in ['train', 'test']:
+        cosine_pred[type_n] = normalized_dot_product(reprs[type_n]['protein'], 
+                                                     reprs[type_n]['ligand'],
+                                                     gram_matrix)
+        cosine_pred[type_n] = (cosine_pred[type_n] + 1) / 2
 
-    if params['loss']['type'] == 'MSE':
-        loss = T.mean((normalized_cosine_pred - target_y) ** 2)
-    elif params['loss']['type'] == 'hinge':
-        loss = pairwise_hinge(normalized_cosine_pred, target_y,
-                              params['loss']['margin'],
-                              params['loss']['kernel'])
-    elif params['loss']['type'] == 'rank_net':
-        ranknet_op = RankNet_Op(params['loss']['sigma'])
-        loss = ranknet_op(normalized_cosine_pred, target_y)
-    else:
-        raise KeyError("Unknown loss %s" % params['loss']['type'])
+        if params['loss']['type'] == 'MSE':
+            loss[type_n] = T.mean((cosine_pred[type_n] - target_y) ** 2)
+        elif params['loss']['type'] == 'hinge':
+            loss[type_n] = pairwise_hinge(cosine_pred[type_n], target_y,
+                                          params['loss']['margin'],
+                                          params['loss']['kernel'])
+        elif params['loss']['type'] == 'rank_net':
+            ranknet_op = RankNet_Op(params['loss']['sigma'])
+            loss[type_n] = ranknet_op(cosine_pred[type_n], target_y)
+        else:
+            raise KeyError("Unknown loss %s" % params['loss']['type'])
 
     weights = []
     for name in names:
         weights += get_all_params(nets[name]['output'], trainable=True)
 
-    updates = lasagne.updates.adam(loss, weights, learning_rate=l_rate_theano)
+    updates = lasagne.updates.adam(loss['train'], weights, learning_rate=l_rate_theano)
 
 ####################################################################
     logger.info("Compiling functions...")
@@ -392,11 +413,11 @@ def main(argc, argv):
         if params[name]["enc_type"] == 'RNN':
             t_input_args.append(params[name]["enc_params"]['mask'])
     t_input_args += [target_y, l_rate_theano]
-    train_fun = theano.function(t_input_args, [loss, normalized_cosine_pred], updates=updates)
+    train_fun = theano.function(t_input_args, [loss['train'], cosine_pred['train']], updates=updates)
 
     train_fun_wrap = masking_decorator(params['protein']["enc_type"] == 'RNN',
                                        params['ligand']["enc_type"] == 'RNN')(train_fun)
-    test_fun = theano.function(t_input_args[:-1], [loss, normalized_cosine_pred])
+    test_fun = theano.function(t_input_args[:-1], [loss['test'], cosine_pred['test']])
     test_fun_wrap = masking_decorator(params['protein']["enc_type"] == 'RNN',
                                       params['ligand']["enc_type"] == 'RNN')(test_fun)
 
@@ -423,6 +444,7 @@ def main(argc, argv):
     n_epochs = params["learning_params"]["n_epochs"]
     n_batches = params["learning_params"]["n_batches"]
     l_rate = params["learning_params"]["l_rate"]
+    prot_aug = params["protein"].get('augment', False) and params['protein']['emb_type'] == 'learn'
     metrics = params["metrics"]
     n_metrics = sum([1 if metric["name"] != "ndcg" else len(metric["Ks"]) for metric in metrics])
 
@@ -448,6 +470,8 @@ def main(argc, argv):
         num_batches = 0
         epoch_scores.fill(0)
         for prot_batch, ligand_batch, target_batch in train_iter:
+            if prot_aug:
+                prot_batch = protein_augmentation(prot_batch, len(coding['protein'].vocab))
             train_loss_batch, pred_batch = train_fun_wrap(prot_batch,
                                                           ligand_batch, 
                                                           target_batch,
